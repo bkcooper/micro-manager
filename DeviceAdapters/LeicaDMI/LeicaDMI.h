@@ -45,12 +45,16 @@ class LeicaScope : public HubBase<LeicaScope>
       LeicaScope();
       ~LeicaScope();
 
+	  // Method search order
+	  static int methodSearchOrder[];
+
       // Device API
       // ---------
       int Initialize();
       int Shutdown();
       void GetName(char* pszName) const;
       bool Busy();
+      bool SupportsDeviceDetection(void);
       MM::DeviceDetectionStatus DetectDevice();
 
       // HUB interface
@@ -68,7 +72,6 @@ class LeicaScope : public HubBase<LeicaScope>
       std::vector<std::string> discoveredDevices_;
 
       void AttemptToDiscover(int deviceCode, const char* deviceName);
-      int GetNumberOfDiscoverableDevices();
       void GetDiscoverableDevice(int deviceNum, char *deviceName, unsigned int maxLength);
 };
 
@@ -270,16 +273,16 @@ public:
 
    // XYStage API                                                            
    // -----------
-  //int SetPositionUm(double x, double y);
-  //int SetRelativePositionUm(double x, double y);
-  //int GetPositionUm(double& x, double& y);
+   // int SetPositionUm(double x, double y);
+   // int SetRelativePositionUm(double x, double y);
+   // int GetPositionUm(double& x, double& y);
   int SetPositionSteps(long x, long y);
   int SetRelativePositionSteps(long x, long y);
   int GetPositionSteps(long& x, long& y);
   int Home();
   int Stop();
   int SetOrigin();
-  int SetAdapterOriginUm(double x, double y);
+  // int SetAdapterOriginUm(double x, double y);
   int GetLimitsUm(double& xMin, double& xMax, double& yMin, double& yMax);
   double GetStepSizeXUm();
   double GetStepSizeYUm();
@@ -298,10 +301,28 @@ private:
    bool initialized_;
    std::string name_;
    std::string description_;
-   long originXSteps_;
-   long originYSteps_;
+   // long originXSteps_;
+   // long originYSteps_;
    //bool mirrorX_;
    //bool mirrorY_;
+
+   /* The following is copied from CXYStageBase, where it is private.
+   If we override SetAdapterOriginUm, then we need to override the other
+   methods and provide this, since the information is otherwise private
+   to the base class. */
+   
+   /*
+   void GetOrientation(bool& mirrorX, bool& mirrorY) 
+   {
+     char val[MM::MaxStrLength];
+     int ret = this->GetProperty(MM::g_Keyword_Transpose_MirrorX, val);
+     assert(ret == DEVICE_OK);
+     mirrorX = strcmp(val, "1") == 0 ? true : false;
+
+     ret = this->GetProperty(MM::g_Keyword_Transpose_MirrorY, val);
+     assert(ret == DEVICE_OK);
+     mirrorY = strcmp(val, "1") == 0 ? true : false;
+     }   */
 };
 
 class Diaphragm : public CGenericBase<Diaphragm>
@@ -497,25 +518,20 @@ public:
    int FullFocus();
    int IncrementalFocus();
    int GetLastFocusScore(double& /*score*/) {return DEVICE_UNSUPPORTED_COMMAND;}
-   int GetCurrentFocusScore(double& score);
+   int GetCurrentFocusScore(double& score) {score = 0.0; return DEVICE_OK;}
    int GetOffset(double &offset);
    int SetOffset(double offset);
-   int GetLEDIntensity(int &intensity);
-   int SetLEDIntensity(int intensity);
 
    //Action Handlers
    int OnDichroicMirrorPosition(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnFullFocusTime(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnOffset(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnLockThreshold(MM::PropertyBase* pProp,  MM::ActionType eAct);
-   int OnLEDIntensity(MM::PropertyBase* pProp,  MM::ActionType eAct);
 
+private:
    bool initialized_;
    std::string name_;
    long timeOut_;
    long fullFocusTime_;
-   double lockThreshold_;
-   long LEDIntensity_;
 };
 
 class AFCOffset : public CStageBase<AFCOffset>
@@ -533,7 +549,7 @@ public:
    virtual int GetPositionSteps(long& steps);
    virtual int SetPositionSteps(long steps);
    virtual int SetOrigin() { return DEVICE_UNSUPPORTED_COMMAND; }
-   virtual int GetLimits(double& /* lower */, double& /* upper */ ) { return DEVICE_UNSUPPORTED_COMMAND; }
+   virtual int GetLimits(double& lower, double& upper) { return DEVICE_UNSUPPORTED_COMMAND; }
    virtual bool IsContinuousFocusDrive() const { return true; }
    virtual int IsStageSequenceable(bool& flag) const { flag = false; return DEVICE_OK; }
 

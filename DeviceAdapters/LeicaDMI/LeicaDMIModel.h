@@ -31,6 +31,7 @@
 #include <vector>
 #include <map>
 
+#include "BlockingQueue.h"
 #include "../../MMDevice/MMDevice.h"
 #include "../../MMDevice/DeviceBase.h"
 #include "../../MMDevice/DeviceThreads.h"
@@ -259,26 +260,17 @@ class LeicaAFCModel : public LeicaDeviceModel
 public:
    LeicaAFCModel();
 
-   int GetOffset(double& offset); // Set point
-   int SetOffset(double offset);  // Measured value
+   int GetOffset(double& mag); // Set point
+   int SetOffset(double mag);  // Measured value
    int GetMode(bool& mode);
    int SetMode(bool mode);
-   int GetScore(double& score);
-   int SetScore(double score);
-   int GetEdgePosition(double& edgeposition);
-   int SetEdgePosition(double edgeposition);
    int GetLEDColors(int& topColor, int& bottomColor);
    int SetLEDColors(int topColor, int bottomColor);
-   int GetLEDIntensity(int& LEDintensity);
-   int SetLEDIntensity(int LEDintensity);
 private:
-   double edgeposition_;
    double offset_;
-   double score_;
    bool mode_;
    int topLEDColor_;
    int bottomLEDColor_;
-   int LEDintensity_;
 };
 
 
@@ -299,7 +291,7 @@ protected:
 };
 
 /*
- * Abstract model of the Lecia DMI microscope
+ * Abstract model of the Leica DMI microscope
  * All get and set methods refer to the model, not to the actual microscope
  * No communication with the microscope takes place in the model, this is merely
  * a place where the program can internally keep track of the state of the microscoe
@@ -316,10 +308,6 @@ public:
 
    bool IsDeviceAvailable(int deviceID);
    void SetDeviceAvailable(int devId);
-   bool IsDeviceCoded(int deviceID);
-   void SetDeviceCoded(int devId);
-   bool IsDeviceMotorized(int devId)
-   { return IsDeviceAvailable(devId) && !IsDeviceCoded(devId); }
    bool IsMethodAvailable(int methodId);
    std::string GetMethod(int methodId);
    int GetMethodID(std::string method);
@@ -346,6 +334,7 @@ public:
    LeicaCondensorModel Condensor_;
    LeicaObjectiveTurretModel ObjectiveTurret_;
    LeicaFastFilterWheelModel FastFilterWheel_[4];
+   BlockingQueue<WheelInfo> wheelQueue_;
    LeicaDriveModel ZDrive_;
    LeicaDriveModel XDrive_;
    LeicaDriveModel YDrive_;
@@ -357,15 +346,14 @@ public:
    LeicaDeviceModel tlPolarizer_;
    LeicaMagChangerModel magChanger_;
    LeicaAFCModel afc_;
-
-	LeicaDeviceModel sidePort_;
+   LeicaDeviceModel sidePort_;
 
 private:
    bool usesMethods_;
-   std::vector<bool> availableDevices_; // Motorized + coded
-   std::vector<bool> codedDevices_;
+   std::vector<bool> availableDevices_;
    std::vector<bool> availableMethods_;
    std::vector<std::string> methodNames_;
+   MMThreadLock mutex_;
 
    static const int maxNrDevices_ = 100;
    static const int maxNrMethods_ = 16;

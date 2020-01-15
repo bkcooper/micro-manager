@@ -227,16 +227,6 @@ int LeicaScopeInterface::Initialize(MM::Device& device, MM::Core& core)
       command.str("");
    }
 
-   // Suppress event reporting for Fast Filter Wheel
-   if (scopeModel_->IsDeviceAvailable(g_Fast_Filter_Wheel)) {
-      command << g_Fast_Filter_Wheel << "003 0 0";
-      ret = GetAnswer(device, core, command.str().c_str(), answer);
-      if (ret != DEVICE_OK)
-         return ret;
-      command.str("");
-   }
-
-
    CDeviceUtils::SleepMs(100);
 
    if (scopeModel_->IsDeviceAvailable(g_Lamp)) {
@@ -463,21 +453,13 @@ int LeicaScopeInterface::Initialize(MM::Device& device, MM::Core& core)
 
    // Start event reporting for AFC
    if (scopeModel_->IsDeviceAvailable(g_AFC)) {
-      command << g_AFC << "003 1 0 0 1 1 1 1 0 0";
+      command << g_AFC << "003 1 0 0 1 1 0 1 0 0";
       ret = GetAnswer(device, core, command.str().c_str(), answer);
       if (ret != DEVICE_OK)
          return ret;
       command.str("");
    }
 
-   // Start event reporting for Fast Filter Wheel
-   if (scopeModel_->IsDeviceAvailable(g_Fast_Filter_Wheel)) {
-      command << g_Fast_Filter_Wheel << "003 1 0";
-      ret = GetAnswer(device, core, command.str().c_str(), answer);
-      if (ret != DEVICE_OK)
-         return ret;
-      command.str("");
-   }
 
 
    // Start monitoring of all messages coming from the microscope
@@ -658,83 +640,7 @@ int LeicaScopeInterface::GetAnswer(MM::Device& device, MM::Core& core, const cha
    return DEVICE_OK;
 }
 
-int LeicaScopeInterface::GetAFCMode(MM::Device& device, MM::Core& core)
-{
-	// Get current offset
-	std::ostringstream command;
-	std::string answer, token;
 
-	command << g_AFC << "021";
-	int ret;
-	ret = GetAnswer(device, core, command.str().c_str(), answer);
-	if (ret == DEVICE_OK){
-			if (answer.find('$') == std::string::npos){
-				std::stringstream ts(answer);
-				int codeback;
-				int mode;
-	
-				ts >> codeback;
-				ts >> mode;
-				scopeModel_->afc_.SetMode(mode==1);
-			}
-		}
-	return ret;
-}
-
-int LeicaScopeInterface::GetAFCFocusScore(MM::Device& device, MM::Core& core)
-{
-
-	// Get current offset
-	std::ostringstream command;
-	std::string answer, token;
-	command << g_AFC << "030";
-   
-	int ret = core.SetSerialCommand(&device, port_.c_str(), command.str().c_str(), "\r");
-	if (ret != DEVICE_OK)
-		return ret;
-	scopeModel_->afc_.SetBusy(true);
-	return ret;
-	//int ret;
-	//while (!scoreFound && (count < maxTries))
-	//{
-
-	//	count++;
-
-	//	ret = GetAnswer(device, core, command.str().c_str(), answer);
-	//	if (ret == DEVICE_OK){
-	//		if (answer.find('$') == std::string::npos){
-	//			std::stringstream ts(answer);
-	//			int codeback;
-	//			double offset;
-	//			double mag;
-	//			ts >> codeback;
-	//			ts >> offset;
-	//			ts >> mag;
-	//			scopeModel_->afc_.SetScore(offset);
-	//			//score = offset;
-	//			scoreFound = TRUE;
-	//		}
-	//	}
-	//
-	//}
-	//return ret;
-
-}
-
-int LeicaScopeInterface::GetAFCLEDIntensity(MM::Device& device, MM::Core& core)
-{
-	// Get current offset
-	std::ostringstream command;
-	std::string answer, token;
-
-	command << g_AFC << "036";
-
-	int ret = core.SetSerialCommand(&device, port_.c_str(), command.str().c_str(), "\r");
-	if (ret != DEVICE_OK)
-		return ret;
-	scopeModel_->afc_.SetBusy(true);
-	return ret;
-}
 /**
  *
  */
@@ -761,7 +667,7 @@ int LeicaScopeInterface::GetDevicesPresent(MM::Device& device, MM::Core& core)
       ret = core.GetSerialAnswer(&device, port_.c_str(), responseLength, response, "\r");
       if (ret != DEVICE_OK)
          return ret;
-      std::istringstream ss(response);
+      std::stringstream ss(response);
       std::string answer;
       ss >> answer;
       if (answer.compare(os.str()) == 0)
@@ -770,36 +676,7 @@ int LeicaScopeInterface::GetDevicesPresent(MM::Device& device, MM::Core& core)
          ss >> stand;
          int devId;
          while (ss >> devId) {
-            std::ostringstream cmd2;
-            cmd2 << devId << "001";
-            int ret = core.SetSerialCommand(&device, port_.c_str(), cmd2.str().c_str(), "\r");
-            if (ret != DEVICE_OK)
-               return ret;
-            char resp2[RCV_BUF_LENGTH] = "";
-            unsigned long respLen2 = RCV_BUF_LENGTH;
-            ret = core.GetSerialAnswer(&device, port_.c_str(), respLen2, resp2, "\r");
-            if (ret != DEVICE_OK)
-               return ret;
-            std::istringstream iss2(resp2);
-            std::string word;
-            iss2 >> word;
-
-            if (word != cmd2.str())
-               continue;
-
-            iss2 >> word;
-            if (word.find("MANUAL") == 0)
-            {
-               core.LogMessage(&device, ("Ignoring manual device: " + word).c_str(), false);
-               continue;
-            }
             scopeModel_->SetDeviceAvailable(devId);
-            core.LogMessage(&device, ("Found: " + word).c_str(), false);
-            if (word.find("CODED") == 0)
-            {
-               scopeModel_->SetDeviceCoded(devId);
-               core.LogMessage(&device, ("Coded but not motorized: " + word).c_str(), false);
-            }
          }
       }
    }
@@ -1784,6 +1661,7 @@ int LeicaScopeInterface::SetILTurretPosition(MM::Device& device, MM::Core& core,
 int LeicaScopeInterface::SetFastFilterWheelPosition(MM::Device& device, MM::Core& core, int filterID, int position)
 {
    scopeModel_->FastFilterWheel_[filterID-1].SetBusy(true);
+   scopeModel_->wheelQueue_.push(WheelInfo(filterID-1, position-1));
    std::ostringstream os;
    os << g_Fast_Filter_Wheel << "022" << " " << filterID << " " << position;
    return core.SetSerialCommand(&device, port_.c_str(), os.str().c_str(), "\r");
@@ -1831,11 +1709,14 @@ int LeicaScopeInterface::SetObjectiveImmersion(MM::Device& device, MM::Core& cor
  */
 int LeicaScopeInterface::SetDrivePosition(MM::Device& device, MM::Core& core, LeicaDriveModel& drive, int deviceID, int position)
 {
-    // There are problems with the Busy signal when sending the ZDrive to a position it already is
+     // There are problems with the Busy signal when sending the ZDrive to a position it already is
    // therefore, check first where it is and only move if we want to go somewhere else
    int mySteps;
    drive.GetPosition( mySteps);
-   if (position != mySteps)
+   /* The DMi8 won't acknowledge move commands less than 11 steps. This means
+      that it won't ever give an event that makes the drive un-busy, leading
+      to timeouts. So, don't enter this loop if your step is too small. */
+   if (abs(position - mySteps) > Z_DRIVE_TOLERANCE)
    {
       drive.SetBusy(true);
       std::ostringstream os;
@@ -1850,7 +1731,7 @@ int LeicaScopeInterface::SetDrivePosition(MM::Device& device, MM::Core& core, Le
  */
 int LeicaScopeInterface::SetDrivePositionRelative(MM::Device& device, MM::Core& core, LeicaDriveModel& drive, int deviceID, int position)
 {
-   if (position != 0)
+  if (abs(position) > Z_DRIVE_TOLERANCE)
    {
       drive.SetBusy(true);
       std::ostringstream os;
@@ -2111,12 +1992,10 @@ int LeicaScopeInterface::GetTransmittedLightShutterPosition(MM::Device & /*devic
 int LeicaScopeInterface::SetAFCMode(MM::Device &device, MM::Core &core, bool on)
 {
    std::stringstream os;
-   scopeModel_->afc_.SetBusy(true);
    os << g_AFC << "020" << " " << (on ? "1" : "0");
 	int ret = core.SetSerialCommand(&device, port_.c_str(), os.str().c_str(), "\r");
 	if(ret != DEVICE_OK)
 		return ret;	
-	//scopeModel_->afc_.SetMode(on);
 	return DEVICE_OK;
 }
 
@@ -2126,22 +2005,11 @@ int LeicaScopeInterface::SetAFCMode(MM::Device &device, MM::Core &core, bool on)
 int LeicaScopeInterface::SetAFCOffset(MM::Device &device, MM::Core &core, double offset)
 {
    std::stringstream os;
-   if (offset==-1){
-	    scopeModel_->afc_.SetBusy(true);
-	    os << g_AFC << "022";
-	int ret = core.SetSerialCommand(&device, port_.c_str(), os.str().c_str(), "\r");
-	if(ret != DEVICE_OK)
-		return ret;	
-	return DEVICE_OK;
-   }
-   else{
-
    os << g_AFC << "024" << " " << offset;
 	int ret = core.SetSerialCommand(&device, port_.c_str(), os.str().c_str(), "\r");
 	if(ret != DEVICE_OK)
 		return ret;	
 	return DEVICE_OK;
-   }
 }
 
 /**
@@ -2156,15 +2024,7 @@ int LeicaScopeInterface::SetAFCDichroicMirrorPosition(MM::Device &device, MM::Co
 		return ret;	
 	return DEVICE_OK;
 }
-int LeicaScopeInterface::SetAFCLEDIntensity(MM::Device &device, MM::Core &core, int intensity)
-{
-	std::stringstream os;
-	os << g_AFC << "035" << " " << intensity;
-	int ret = core.SetSerialCommand(&device, port_.c_str(), os.str().c_str(), "\r");
-	if(ret != DEVICE_OK)
-		return ret;	
-	return DEVICE_OK;
-}
+
 /*
 int LeicaScopeInterface::IsContinuousAutoFocusLocked(MM::Device &device, MM::Core &core, bool & locked)
 {
@@ -2189,7 +2049,7 @@ LeicaMonitoringThread::LeicaMonitoringThread(MM::Device& device, MM::Core& core,
    device_ (device),
    core_ (core),
    stop_ (true),
-   intervalUs_(10000), // check every 10 ms faor new messages, 
+   intervalUs_(10000), // check every 10 ms for new messages, 
    scopeModel_(scopeModel)
 {
    scopeModel_->GetStandFamily(standFamily_);
@@ -2264,12 +2124,14 @@ int LeicaMonitoringThread::svc()
                       case (29) : 
                          scopeModel_->method_.SetBusy(false);
                          break;
-                      // I am unsure if this already signals the end of the command
+                      // 28 is the getter for methods. After a set method, a 70028 event
+					  // will occur before 70029 (actually acknowledging the finish of the
+					  // method switch.) The method is still busy until 70029 is
+					  // received. Perhaps this was introduced in DMi8?
                       case (28):
                          int pos;
                          os >> pos;
                          scopeModel_->method_.SetPosition(pos);
-                         scopeModel_->method_.SetBusy(false);
                          break;
                    }
                    break;
@@ -2428,22 +2290,42 @@ int LeicaMonitoringThread::svc()
                    break;
                case (g_Fast_Filter_Wheel) :
                   {
-                   
+                   int filterID_raw;
+                   os >> filterID_raw;
+                   int filterID = filterID_raw - 1;
                    switch (commandId) {
                       case (22) : // Position set response
-						 scopeModel_->FastFilterWheel_[0].SetBusy(false);
+                         {
+						    /* It shouldn't be possible to get this in the monitoring thread without having
+							   previously made a request, so I believe the pop should always succeed. If it
+							   fails we should give up. */
+							WheelInfo wheel(0, 0);
+							if (!scopeModel_->wheelQueue_.try_pop(wheel)) {
+								std::ostringstream oss;
+								oss << "wheelQueue was empty when pop attempted; this shouldn't occur";
+								core_.LogMessage(&device_, oss.str().c_str(), false);
+							};
+							/* for debugging, let's see what these values are 
+							std::ostringstream oss;
+							oss << "Wheel index: " << wheel.index_ << "; wheel position: " << wheel.position_;
+							core_.LogMessage(&device_, oss.str().c_str(), false); */
+							scopeModel_->FastFilterWheel_[wheel.index_].SetPosition(wheel.position_);
+                            scopeModel_->FastFilterWheel_[wheel.index_].SetBusy(false);
+                         }
                          break;
 					  case (23) : // Position get response
-						  {
-							  int filterID_raw;
-			                  os >> filterID_raw;
-						      int filterID = filterID_raw - 1;
-							  int pos;
-							  os >> pos;
-							  scopeModel_->FastFilterWheel_[filterID].SetBusy(false);
-                              scopeModel_->FastFilterWheel_[filterID].SetPosition(pos);
-						  }
-
+				      /* I'm not convinced this is used, but let's grab the portions of it
+					     that come following the command id just in case to not mess up
+						 other things. A more comprehensive rework is necessary to make
+						 filter wheels make sense anyway. */
+						 {
+							int filterID_raw;
+			                os >> filterID_raw;
+						    int filterID = filterID_raw - 1;
+							int pos;
+							os >> pos;
+						 }
+						 break;
                    }
                   }
                    break;
@@ -2474,8 +2356,7 @@ int LeicaMonitoringThread::svc()
                             os >> pos;
                             if (pos != -100000)
                                scopeModel_->ZDrive_.SetPosition(pos);
-							else
-							   scopeModel_->ZDrive_.SetBusy(false);
+                            //scopeModel_->ZDrive_.SetBusy(false);
                          break;
                          }
                       case (29) : // Focus position
@@ -2833,12 +2714,7 @@ int LeicaMonitoringThread::svc()
                   }
                case (g_AFC) :
                   switch (commandId) {
-				     case (20) :
-				     { // set_afc_mode
-						scopeModel_->afc_.SetBusy(false);
-						break;
-					 }
-                     case (21) : // get_afc_mode
+                     case (21) : // Focus enabled
                      {
                         int state;
                         os >> state;
@@ -2846,38 +2722,14 @@ int LeicaMonitoringThread::svc()
                         scopeModel_->afc_.SetBusy(false);
                         break;
                      }
-					 case (22) :  //set AFC offset to here
-						scopeModel_->afc_.SetBusy(false);
-                        break;
-                     case (23) : // Current edge position value
-                     {
-                        double edgeposition;
-                        double offset;
-						os >> edgeposition;
-						scopeModel_->afc_.GetOffset(offset);
-						scopeModel_->afc_.SetEdgePosition(edgeposition);
-						scopeModel_->afc_.SetScore(edgeposition-offset);
-                        //scopeModel_->afc_.SetBusy(false);
-                        break;
-                     }
-					  case (25) : // Current edge setpoint value
+                     case (23) : // Current offset
                      {
                         double offset;
                         os >> offset;
-						scopeModel_->afc_.SetOffset(offset);
+                        scopeModel_->afc_.SetOffset(offset);
                         scopeModel_->afc_.SetBusy(false);
                         break;
                      }
-					 case (30) : // AFC edge position dif value
-					{
-						double offset;
-						double mag;
-						os >> offset;
-						os >> mag;
-						scopeModel_->afc_.SetScore(offset);
-						scopeModel_->afc_.SetBusy(false);
-                        break;
-					}
                      case (32) : // AFC dichroic mirror position
                      {
                         int pos;
@@ -2886,15 +2738,6 @@ int LeicaMonitoringThread::svc()
                         scopeModel_->afc_.SetBusy(false);
                         break;
                      }
-					 case (36) : //LED intensity
-					{
-						int intensity;
-						os >> intensity;
-						scopeModel_->afc_.SetLEDIntensity(intensity);
-						scopeModel_->afc_.SetBusy(false);
-						break;
-					}
-					
                      case (39) : // LED colors
                      {
                         int topColor, bottomColor;
